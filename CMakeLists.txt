@@ -3,4 +3,4 @@ project(MyMiniatureSTL)
 
 set(CMAKE_CXX_STANDARD 11)
 
-add_executable(MyMiniatureSTL main.cpp)
+add_executable(MyMiniatureSTL main.cpp 01_allocator/jjaloc.cpp 01_allocator/jjaloc.h 01_allocator/stl_construct.h 01_allocator/stl_alloc.h)

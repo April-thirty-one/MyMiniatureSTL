@@ -29,7 +29,7 @@ inline T * _allocate(ptrdiff_t size, T *)
     T * temp = (T*) ::operator new((size_t)(size * sizeof(T)));                   //   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     if (temp == nullptr)
     {
-        std::cout << "out of memory" << std::endl;
+        std::cerr << "out of memory" << std::endl;
         exit(1);
     }
     return temp;
@@ -46,12 +46,12 @@ inline void _deallocate(T * buffer)
 template <typename T1, typename T2>
 inline void _construct(T1 * p, const T2 & value)
 {
-    p = new T1(value);                                     // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    new (p) T1(value);                                     // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 }
 
 // 等同于 p->~T()
 template <typename T>
-inline void destroy(T * ptr)
+inline void _destroy(T * ptr)
 {
     ptr->~T();
 }
