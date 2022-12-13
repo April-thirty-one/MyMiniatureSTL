@@ -78,7 +78,6 @@ void * __malloc_alloc_template<inst>::oom_realloc(void * p, size_t n)
     }
 }
 
-//static void (* __malloc_alloc_oom_headler)();
 
 template <int inst>
 void * __malloc_alloc_template<inst>::allocate(size_t n)
@@ -125,6 +124,10 @@ void (* __malloc_alloc_template<inst>::set_new_handler(void (*f)()))()
 
 
 //// 以下是第二级配置器。 ----------------------------------------------------------------------------------------------------
+
+// 直接将 inst 参数设置为0
+typedef __malloc_alloc_template<0> malloc_alloc;
+
 enum
 {
         __ALIGN = 8,                                // 小型区块的上调边界
@@ -138,22 +141,17 @@ template <bool threads, int inst>
 class __default_alloc_template
 {
 private:
-    static size_t ROUND_UP(size_t bytes)           // ROUND_UP() 将bytes 上调到 8 的倍数
-    {
-        return ((bytes + __ALIGN - 1) & ~(__ALIGN - 1));
-    }
+    static size_t ROUND_UP(size_t bytes);           // ROUND_UP() 将bytes 上调到 8 的倍数
     union obj                           // free-lists 节点构造
     {
         union obj * free_list_link;
         char client_data[1];            // 用户可以看到这个
     };
     static obj * volatile free_list[__NFREELLSTS];      // 16 个 free_lists
-    static size_t FREELIST_INDEX(size_t bytes)         // 根据区块大小，决定使用第n号 free_list, n 从 1 开始计数
-    {
-        return ((bytes + __ALIGN - 1) / __ALIGN -1);
-    }
-    static void * refill(size_t n);                     // 返回一个大小为 n 的对象，并可能加入大小为n的其他区块到 free list。
-    static char *chunk_alloc(size_t size, int & nobjs); // 若配置 nobjs 个区块有所不便，nobjs 可能会降低
+    static size_t FREELIST_INDEX(size_t bytes);         // 根据区块大小，决定使用第n号 free_list, n 从 1 开始计数
+
+    static void * refill(size_t n);                     // 当发现 free list 中没有可用区块时，就调用 refill()，准备为 free list重新填充空间，新的空间来自内存池，缺省取得20个新节点。返回一个大小为 n 的对象，并可能加入大小为n的其他区块到 free list。假设 n 已上调至 8 的倍数
+    static char *chunk_alloc(size_t size, int & nobjs); // 从内存池中取空间给 free list，若配置 nobjs 个区块有所不便，nobjs 可能会降低
 
     // 块分配状态
     static char * start_free;                           // 内存池的起始地址。只在 chunk_alloc() 中变换
@@ -161,10 +159,26 @@ private:
     static size_t heap_size;
 
 public:
-    static void * allocate(size_t n);
-    static void * deallocate(void * p, size_t n);
+    static void * allocate(size_t n);                   // 此函数先判断区块大小，大于 128byte 就调用第一级分配器，反之就查找对应的 free list。若 free list 中有可用的区块，就直接拿来用，若没有可用的区块，就将区块大小上调至 8 的倍数，然后调用 refill(), 准备为 free list 重新填充空间。
+    static void deallocate(void * p, size_t n);         // 此函数先判断区块大小，大于 128byte 就调用第一级分配器，反之就查找对应的 free list，将区块回收
     static void * reallocate(void * p, size_t old_size, size_t new_size);
 };
+
+
+
+
+
+template <bool threads, int inst>
+size_t __default_alloc_template<threads, inst>::ROUND_UP(size_t bytes)
+{
+    return ((bytes + __ALIGN - 1) & ~(__ALIGN - 1));
+}
+
+template <bool threads, int inst>
+size_t __default_alloc_template<threads, inst>::FREELIST_INDEX(size_t bytes)         // 根据区块大小，决定使用第n号 free_list, n 从 1 开始计数
+{
+    return ((bytes + __ALIGN - 1) / __ALIGN -1);
+}
 
 template <bool threads, int inst>
 char * __default_alloc_template<threads, inst>::start_free = nullptr;
@@ -181,10 +195,145 @@ typename __default_alloc_template<threads, inst>::obj * volatile __default_alloc
 template <bool threads, int inst>
 void * __default_alloc_template<threads, inst>::allocate(size_t n)
 {
+    obj * volatile * my_free_list;
+    obj * result;
 
+    if (n > (size_t)__MAX_BYTES)        // 大于 128bytes 调用第一级配置器
+    {
+        return (malloc_alloc::allocate(n));
+    }
+    my_free_list = free_list + FREELIST_INDEX(n);   // 寻找16个free list 中最合适的一个
+    result = * my_free_list;
+    if (result == nullptr)              // 没有找到可用的 free list，准备重新填充 free list
+    {
+        void * r = refill(ROUND_UP(n));
+        return r;
+    }
+    *my_free_list = result->free_list_link;     // 调整 free list
+    return(result);
 }
 
+template <bool threads, int inst>
+void __default_alloc_template<threads, inst>::deallocate(void *p, size_t n)
+{
+    obj * q = (obj *)p;
+    obj * volatile * my_free_list;
 
+    if (n > (size_t)__MAX_BYTES)    // 调用第一级配置器
+    {
+        malloc_alloc::deallocate(p, n);
+        return;
+    }
+    my_free_list = free_list + FREELIST_INDEX(n);   // 查找对应的 free list
+
+    q->free_list_link = *my_free_list;      // 调整 free list，回收区块
+    *my_free_list = q;
+}
+
+template <bool threads, int inst>
+void * __default_alloc_template<threads, inst>::refill(size_t n)
+{
+    int nobjs = 20;
+
+    char * chunk = chunk_alloc(n, nobjs);            // 调用 chunk_alloc(), 尝试取得 nobjs 个区块作为 free list 的新节点
+    obj * volatile my_free_list;
+    obj * result;
+    obj * current_obj;
+    obj * next_obj;
+    int i;
+
+    if (nobjs == 1)         // 若只获得一个区块，这个区块分配给调用这使用，free list 无新节点
+    {
+        return (chunk);
+    }
+
+    // 否则准备调整 free list 纳入新节点
+    my_free_list = free_list + FREELIST_INDEX(n);
+
+    // 以下在 chunk 空间内建立 free list
+    result = (obj *)chunk;      // 这一块准备返还给客端
+    // 以下导引 free list 指向新配置的空间（取自内存池）
+    *my_free_list = next_obj = (obj *)(chunk + n);
+    // 以下将free list 的各个节点串联起来
+    for (i = 1; ; i ++)         // 从 1 开始，因为第 0 个将返回客端
+    {
+        current_obj = next_obj;
+        next_obj = (obj *)((char *)next_obj + n);
+        if (nobjs - 1 == i)
+        {
+            current_obj->free_list_link = 0;
+            break;
+        }
+        else
+        {
+            current_obj->free_list_link = next_obj;
+        }
+    }
+    return result;
+}
+
+template <bool threads, int inst>
+char * __default_alloc_template<threads, inst>::chunk_alloc(size_t size, int & nobjs)
+{
+    char * result;
+    size_t total_bytes = size * nobjs;
+    size_t bytes_left = end_free - start_free;      // 内存池剩余空间
+
+    if (bytes_left >= total_bytes)          // 内存池剩余空间满足要求
+    {
+        result = start_free;
+        start_free += total_bytes;
+        return result;
+    }
+    else if (bytes_left >= size)            // 内存池剩余空间不能完全满足要求，但足够供应一个或以上的区块
+    {
+        nobjs = bytes_left / size;
+        total_bytes = size * nobjs;
+        result = start_free;
+        start_free += total_bytes;
+        return result;
+    }
+    else                                    // 内存池剩余空间连一个区块大小的容量都无法提供
+    {
+        size_t bytes_to_get = 2 * total_bytes + ROUND_UP(heap_size >> 4);
+        if (bytes_left > 0)            // 让内存池中的残余零头还有剩余价值
+        {
+            obj * volatile * my_free_list = free_list + FREELIST_INDEX(bytes_left);     // 内存池中还有一些零头，先配给适当的 free list
+            ((obj *)start_free) -> free_list_link = *my_free_list;          // 调整 free list，将内存池残余空间编入
+            *my_free_list = (obj *)start_free;
+        }
+
+        start_free = (char *)malloc(bytes_to_get);          // 配置 heap 空间，用来补充内存池
+        if (start_free == nullptr)              // heap 空间不足，分配失败
+        {
+            int i;
+            obj * volatile * my_free_list;;
+            obj * p;                  //// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+            // 试着检测我们手上有的东西，这不会造成伤害。
+            // 我们不打算配置较小的区块，因为那在多进程机器上容易造成灾难
+            // 以下搜索适当的 free list
+            // 所谓的适当是指：“尚有未用的区块，且区块够大”的 free list
+            for (i = size; i <= __MAX_BYTES; i += __ALIGN)
+            {
+                my_free_list = free_list + FREELIST_INDEX(i);
+                p = *my_free_list;
+                if (p != nullptr)           // free list 中尚有未使用的空间
+                {
+                    *my_free_list = p -> free_list_link;        // 调整free list 以释放未用空间
+                    start_free = (char *)p;
+                    end_free = start_free + size;
+                    return chunk_alloc(size, nobjs);            // 递归的调用自己，为了修正 nobjs，任何残余零头终将被编入适当的 free list 中备用
+                }
+            }
+            end_free = nullptr;             // 进行到这里，表示真的没有内存可用了
+            start_free = (char *)malloc_alloc::allocate(bytes_to_get);      // 调用第一级配置器，看看 out_of_memory是否可以进些力， 这会导致抛出一场(exception),或内存状况得到改善
+            heap_size += bytes_to_get;
+            end_free = start_free + bytes_to_get;
+            return chunk_alloc(size, nobjs);            // 递归的调用自己，为了修正 nobjs
+        }
+    }
+}
 
 
 
