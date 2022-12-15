@@ -61,6 +61,12 @@ build CMakeFiles/MyMiniatureSTL.dir/01_allocator/jjaloc.cpp.o: CXX_COMPILER__MyM
   OBJECT_DIR = CMakeFiles/MyMiniatureSTL.dir
   OBJECT_FILE_DIR = CMakeFiles/MyMiniatureSTL.dir/01_allocator
 
+build CMakeFiles/MyMiniatureSTL.dir/02_iterator/mylist-iter-test.cpp.o: CXX_COMPILER__MyMiniatureSTL_Debug /home/yapeng-cheng/Documents/C++/MyMiniatureSTL/02_iterator/mylist-iter-test.cpp || cmake_object_order_depends_target_MyMiniatureSTL
+  DEP_FILE = CMakeFiles/MyMiniatureSTL.dir/02_iterator/mylist-iter-test.cpp.o.d
+  FLAGS = -g -fdiagnostics-color=always -std=gnu++11
+  OBJECT_DIR = CMakeFiles/MyMiniatureSTL.dir
+  OBJECT_FILE_DIR = CMakeFiles/MyMiniatureSTL.dir/02_iterator
+
 
 # =============================================================================
 # Link build statements for EXECUTABLE target MyMiniatureSTL
@@ -69,7 +75,7 @@ build CMakeFiles/MyMiniatureSTL.dir/01_allocator/jjaloc.cpp.o: CXX_COMPILER__MyM
 #############################################
 # Link the executable MyMiniatureSTL
 
-build MyMiniatureSTL: CXX_EXECUTABLE_LINKER__MyMiniatureSTL_Debug CMakeFiles/MyMiniatureSTL.dir/main.cpp.o CMakeFiles/MyMiniatureSTL.dir/01_allocator/jjaloc.cpp.o
+build MyMiniatureSTL: CXX_EXECUTABLE_LINKER__MyMiniatureSTL_Debug CMakeFiles/MyMiniatureSTL.dir/main.cpp.o CMakeFiles/MyMiniatureSTL.dir/01_allocator/jjaloc.cpp.o CMakeFiles/MyMiniatureSTL.dir/02_iterator/mylist-iter-test.cpp.o
   FLAGS = -g
   OBJECT_DIR = CMakeFiles/MyMiniatureSTL.dir
   POST_BUILD = :

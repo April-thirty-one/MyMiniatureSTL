@@ -128,6 +128,58 @@ inline wchar_t * uninitialized_copy(const wchar_t * first, const wchar_t * last,
 
 //// =================================== 以下是 unitialized_fill() 的源码 ===================================
 
+/*
+ * 迭代器 first 指向输入端(欲初始化空间)的起始位置
+ * 迭代器 last 指向输入端(欲初始化空间)的结束位置(前闭后开区间)
+ * x 表示初值
+ */
+template <typename ForwardIterator, typename T>
+inline void uninitialized_fill(ForwardIterator first, ForwardIterator last, const T & x)
+{
+    __uninitialized_fill(first, last, x, value_type(first));        // 利用value_type 萃取出迭代器 first 的 value type
+}
+
+/*
+ * 然后判断是否是 POD 型别
+ */
+template <typename ForwardIterator, typename T, typename T1>
+inline void __uninitialized_fill(ForwardIterator first, ForwardIterator last, const T & x, T1 *)
+{
+    typedef typename __type_traits<T1>::is_POD_type is_POD;
+    __uninitialized_fill_aux(first, last, x, is_POD());
+}
+
+/*
+ * POD 类型必然拥有 trivial ctor / dtor / copy / assignment 函数
+ * 因此，我们可以对 POD 型别采取最有效率的初值填写方法，而对 non-POD 型别采取最保险安全的做法：
+ *
+ * 如果 copy construction 等同于 assignment，而且 destructor 是 trivial，以下就生效
+ * 若果是 POD 型别，执行流程就会转进到以下函数，这是籍由 function template 的参数推导机制而得
+ */
+template <typename ForwardIterator, typename T>
+inline void __uninitialized_fill_aux(ForwardIterator first, ForwardIterator last, const T & x, __true_type)
+{
+    fill(first, last, x);                   // 调用 STL 的算法 fill()
+}
+
+/*
+ * 若果不是 POD 型别，执行流程就会转进到以下函数，这是籍由 function template 的参数推导机制而得
+*/
+template <typename ForwardIterator, typename T>
+inline void __uninitialized_fill_aux(ForwardIterator first, ForwardIterator last, const T & x, __false_type)
+{
+    ForwardIterator cur = first;
+    for ( ; cur != last; ++cur)
+    {
+        construct(&*cur, x);
+    }
+}
+
+
+
+
+
+
 
 
 #endif //MYMINIATURESTL_STL_UNINITIALIZED_H
